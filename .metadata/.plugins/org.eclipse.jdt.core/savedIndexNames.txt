@@ -1,0 +1,7 @@
+INDEX VERSION 1.126+/home/philip/Android/WeatherSlack/.metadata/.plugins/org.eclipse.jdt.core
+1822850386.index
+3003040414.index
+788268201.index
+554568172.index
+3673814972.index
+1095632818.index

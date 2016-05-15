@@ -1,0 +1,80 @@
+package org.uberthought;
+
+import java.util.Observable;
+import java.util.Observer;
+
+import android.app.Activity;
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Point;
+import android.graphics.Rect;
+import android.graphics.drawable.AnimationDrawable;
+import android.widget.ImageView;
+
+import com.google.android.maps.GeoPoint;
+import com.google.android.maps.MapView;
+import com.google.android.maps.Overlay;
+import com.google.android.maps.Projection;
+
+public class ConusRadarOverlay extends Overlay  implements Observer {
+	NoaaRadar noaaRadar;
+	MapView mapView = null;
+	ImageView imageView = null;
+
+	private String TAG = this.getClass().getName();
+
+	Context context;
+
+	public ConusRadarOverlay(Context context_) {
+		context = context_;
+		noaaRadar = new NoaaRadar(context_);
+		noaaRadar.addObserver(this);
+		
+		mapView = (MapView) ((Activity)context).findViewById(R.id.mapview);
+		imageView = new ImageView(mapView.getContext());
+		mapView.addView(imageView);
+	}
+	
+	@Override
+	public void draw(Canvas canvas, MapView mapView, boolean arg2) {
+//		this.mapView = mapView;				
+		super.draw(canvas, mapView, arg2);
+//		imageView.draw(canvas);
+//		noaaRadar.draw(canvas, mapView, arg2);
+	}
+
+	public void update(Observable observable, Object data) {
+		imageView.setBackgroundDrawable(noaaRadar.animationDrawable);
+//		noaaRadar.animationDrawable.start();
+
+		mapView.post(new Runnable() {
+			public void run() {
+				noaaRadar.animationDrawable.start();
+			}
+		});
+
+		GeoPoint gp1, gp2;
+		gp1 = new GeoPoint((int) (noaaRadar.gfw.y * 1E6), (int) (noaaRadar.gfw.x * 1E6));
+		gp2 = new GeoPoint(
+				(int) ((noaaRadar.gfw.y - noaaRadar.gfw.pixelHeight * noaaRadar.animationDrawable.getIntrinsicHeight()) * 1E6),
+				(int) ((noaaRadar.gfw.x + noaaRadar.gfw.pixelWidth * noaaRadar.animationDrawable.getIntrinsicWidth()) * 1E6));
+
+		Projection projection = mapView.getProjection();
+		Point p1 = projection.toPixels(gp1, null);
+		Point p2 = projection.toPixels(gp2, null);
+
+		Rect rect = new Rect(p1.x, p1.y, p2.x, p2.y);
+		
+		MapView.LayoutParams layoutParams = new MapView.LayoutParams(
+				rect.width(),
+				rect.height(),
+				gp2,
+				rect.left,
+				rect.bottom,
+				MapView.LayoutParams.BOTTOM_CENTER);
+		imageView.setLayoutParams(layoutParams);
+			    
+//        if (mapView != null)
+//        	mapView.forceLayout();
+	}
+}

@@ -1,0 +1,198 @@
+package org.uberthought;
+
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.DefaultHttpClient;
+
+import android.content.Context;
+import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Matrix;
+import android.graphics.Point;
+import android.graphics.Rect;
+import android.os.AsyncTask;
+import android.util.Log;
+
+import com.google.android.maps.GeoPoint;
+import com.google.android.maps.MapView;
+import com.google.android.maps.Overlay;
+import com.google.android.maps.Projection;
+
+public class ConusRadarOverlay extends Overlay {
+	Bitmap bitmap;
+	GFWFile gfw;
+	Matrix matrix = new Matrix();
+	MapView mapView;
+	GeoPoint gp1, gp2;
+
+	private String TAG = this.getClass().getName();
+
+	Context context;
+
+	public ConusRadarOverlay(Context context_) {
+		context = context_;
+
+
+		Resources resources = context.getResources();
+		InputStream inputStream;
+
+		// http://radar.weather.gov/ridge/Conus/RadarImg/Conus_20120612_1808_N0Ronly.gif
+		// http://radar.weather.gov/ridge/Conus/RadarImg/latest_radaronly.gif
+		inputStream = resources.openRawResource(R.raw.latest_radaronly_gif);
+		bitmap = BitmapFactory.decodeStream(inputStream);
+
+		// http://radar.weather.gov/ridge/Conus/RadarImg/latest_radaronly.gfw
+		inputStream = resources.openRawResource(R.raw.latest_radaronly_gfw);
+		gfw = new GFWFile(inputStream);
+		gp1 = new GeoPoint(
+				(int)(gfw.y * 1E6),
+				(int)(gfw.x * 1E6));
+		gp2 = new GeoPoint(
+				(int)((gfw.y - gfw.pixelHeight * bitmap.getHeight()) * 1E6),
+				(int)((gfw.x + gfw.pixelWidth * bitmap.getWidth()) * 1E6));
+
+//		new DownloadImageTask().execute("http://radar.weather.gov/ridge/Conus/RadarImg/latest_radaronly.gif");
+//		new DownloadFileTask().execute("http://radar.weather.gov/ridge/Conus/RadarImg/");
+		inputStream = resources.openRawResource(R.raw.radarimg_html);
+		fileDownloaded("http://radar.weather.gov/ridge/Conus/RadarImg/", inputStream);
+	}
+
+	void fileDownloaded(String url, InputStream inputStream) {
+		if (url.charAt(url.length() - 1) == '/' )
+			url = url.substring(0, url.length() - 1);
+		String[] split = url.split("/");
+		if (split.length == 0)
+			return;
+		String file = split[split.length - 1];
+		
+		Log.d(TAG, url + " Downloaded");
+	}
+	
+	String fileFromURL(String url) {
+
+	}
+
+	
+	class DownloadFileTask extends AsyncTask<String, Void, Object[]>{
+		
+		@Override
+		protected Object[] doInBackground(String... urls) {
+			InputStream inputStream = null;
+
+			HttpClient httpClient = new DefaultHttpClient();
+			HttpGet httpGet = new HttpGet(urls[0]);
+
+			try {
+				HttpResponse response = httpClient.execute(httpGet);
+				HttpEntity entity = response.getEntity();
+				inputStream = entity.getContent();
+			} catch (ClientProtocolException e) {
+				e.printStackTrace();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+
+			Object[] objects = new Object[2];
+			objects[0] = urls[0];
+			objects[1] = inputStream;
+			return objects;
+		}
+		
+		protected void onPostExecute(Object[] objects) {
+			String url = (String)objects[0];
+			InputStream inputStream = (InputStream)objects[1];
+			ConusRadarOverlay.this.fileDownloaded(url, inputStream);
+		}
+	}
+	
+	class DownloadImageTask extends AsyncTask<String, Void, InputStream>{
+
+		@Override
+		protected InputStream doInBackground(String... urls) {
+			InputStream inputStream = null;
+
+			HttpClient httpClient = new DefaultHttpClient();
+			HttpGet httpGet = new HttpGet(urls[0]);
+
+			try {
+				HttpResponse response = httpClient.execute(httpGet);
+				HttpEntity entity = response.getEntity();
+				inputStream = entity.getContent();
+			} catch (ClientProtocolException e) {
+				e.printStackTrace();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+
+			return inputStream;
+		}
+
+		protected void onPostExecute(InputStream inputStream) {
+			if (ConusRadarOverlay.this.mapView != null)
+				ConusRadarOverlay.this.mapView.invalidate();
+		}
+	}
+
+
+	@Override
+	public void draw(Canvas canvas, MapView mapView, boolean arg2) {
+		this.mapView = mapView;
+
+		Projection projection = mapView.getProjection();
+		Point p1 = projection.toPixels(gp1, null);
+		Point p2 = projection.toPixels(gp2, null);
+		Rect rect = new Rect(p1.x, p1.y, p2.x, p2.y);
+
+		super.draw(canvas, mapView, arg2);
+		if (bitmap != null)
+			canvas.drawBitmap(bitmap, null, rect, null);
+	}
+
+
+	public class GFWFile {
+		float pixelWidth;
+		float pixelHeight;
+		float x;
+		float y;
+		float r1;
+		float r2;
+
+		/*
+		 * Line 1: x-dimension of a pixel in map units
+		 * Line 2: rotation parameter
+		 * Line 3: rotation parameter
+		 * Line 4: NEGATIVE of y-dimension of a pixel in map units
+		 * Line 5: x-coordinate of center of upper left pixel
+		 * Line 6: y-coordinate of center of upper left pixel
+		 * RectF rect = new RectF();
+		 * rect.left = gfw.x;
+		 * rect.top = gfw.y;
+		 * rect.right = gfw.x + gfw.pixelWidth * bitmap.getWidth();
+		 * rect.bottom = gfw.y - gfw.pixelHeight * bitmap.getHeight();
+		 */
+		@SuppressWarnings("deprecation")
+		public GFWFile(InputStream inputStream) {
+			DataInputStream dataInputStream = new DataInputStream(inputStream);
+
+			try {
+				pixelWidth  = Float.parseFloat(dataInputStream.readLine());
+				r1          = Float.parseFloat(dataInputStream.readLine());
+				r2          = Float.parseFloat(dataInputStream.readLine());
+				pixelHeight = -Float.parseFloat(dataInputStream.readLine());
+				x           = Float.parseFloat(dataInputStream.readLine());
+				y           = Float.parseFloat(dataInputStream.readLine());
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+}

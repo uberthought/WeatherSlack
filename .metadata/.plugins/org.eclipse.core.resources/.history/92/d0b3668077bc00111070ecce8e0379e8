@@ -1,0 +1,44 @@
+package org.uberthought;
+
+import java.util.Observable;
+import java.util.Observer;
+
+import android.app.Activity;
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Point;
+import android.graphics.Rect;
+import android.graphics.drawable.AnimationDrawable;
+import android.widget.ImageView;
+
+import com.google.android.maps.GeoPoint;
+import com.google.android.maps.MapView;
+import com.google.android.maps.Overlay;
+import com.google.android.maps.Projection;
+
+public class ConusRadarOverlay extends Overlay {
+	NoaaRadar noaaRadar;
+	MapView mapView = null;
+	ImageView imageView = null;
+
+	private String TAG = this.getClass().getName();
+
+	Context context;
+
+	public ConusRadarOverlay(Context context_) {
+		context = context_;
+		noaaRadar = new NoaaRadar(context_);
+		noaaRadar.addObserver(this);
+		
+		mapView = (MapView) ((Activity)context).findViewById(R.id.mapview);
+		imageView = new ImageView(mapView.getContext());
+		mapView.addView(imageView);
+	}
+	
+	@Override
+	public boolean draw(Canvas canvas, MapView mapView, boolean arg2, long when) {
+		super.draw(canvas, mapView, arg2);
+		return noaaRadar.draw(canvas, mapView, arg2, when);
+	}
+	
+}

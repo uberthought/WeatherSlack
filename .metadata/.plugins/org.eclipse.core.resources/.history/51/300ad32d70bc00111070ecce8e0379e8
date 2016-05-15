@@ -1,0 +1,268 @@
+package org.uberthought;
+
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.Observable;
+import java.util.Scanner;
+import java.util.SortedSet;
+import java.util.TimeZone;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import android.content.Context;
+import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.ColorFilter;
+import android.graphics.PixelFormat;
+import android.graphics.Point;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.drawable.AnimationDrawable;
+import android.graphics.drawable.Drawable;
+import android.util.Log;
+
+import com.google.android.maps.GeoPoint;
+import com.google.android.maps.MapView;
+import com.google.android.maps.Projection;
+
+public class NoaaRadar extends Observable {
+	SortedSet<Frame> frames = new TreeSet<NoaaRadar.Frame>();
+	AnimationDrawable animationDrawable;
+	GFWFile gfw = null;
+	Context context;
+	Resources resources;
+
+	String url = "http://radar.weather.gov/ridge/Conus/RadarImg/";
+	// String gwfName = "latest_radaronly.gfw";
+	// String imageName =
+	// "Conus_\\d\\d\\d\\d\\d\\d\\d\\d_\\d\\d\\d\\d_N0Ronly\\.gif";
+
+	String gwfName = "southeast_radaronly.gfw";
+	String imageName = "southeast_\\d\\d\\d\\d\\d\\d\\d\\d_\\d\\d\\d\\d_N0Ronly\\.gif";
+
+	ArrayList<String> imageURLs = new ArrayList<String>();
+
+	private String TAG = this.getClass().getName();
+
+	public NoaaRadar(Context context_) {
+		context = context_;
+		resources = context.getResources();
+
+		gfw = new GFWFile(url + gwfName);
+		new ImageURLs(url);
+	}
+
+	private void getImages() {
+		// http://radar.weather.gov/ridge/Conus/RadarImg/Conus_20120612_1808_N0Ronly.gif
+		// http://radar.weather.gov/ridge/Conus/RadarImg/latest_radaronly.gif
+
+		// String name = imageURLs.get(0);
+//		while(imageURLs.size() > 3)
+//			imageURLs.remove(0);
+		for (String name : imageURLs) {
+			Frame frame = new Frame(name);
+			frames.add(frame);
+		}
+
+		animationDrawable = new AnimationDrawable();
+		for (Frame frame : frames)
+			animationDrawable.addFrame(frame, 100);
+		animationDrawable.setOneShot(false);
+	}
+
+	public void draw(Canvas canvas, MapView mapView, boolean arg2) {
+		if (gfw == null || !gfw.valid || frames.isEmpty()
+				|| !frames.first().valid)
+			return;
+//		Bitmap bitmap = frames.first().bitmap;
+
+		GeoPoint gp1, gp2;
+		gp1 = new GeoPoint((int) (gfw.y * 1E6), (int) (gfw.x * 1E6));
+		gp2 = new GeoPoint(
+				(int) ((gfw.y - gfw.pixelHeight * animationDrawable.getIntrinsicHeight()) * 1E6),
+				(int) ((gfw.x + gfw.pixelWidth * animationDrawable.getIntrinsicWidth()) * 1E6));
+
+		Projection projection = mapView.getProjection();
+		Point p1 = projection.toPixels(gp1, null);
+		Point p2 = projection.toPixels(gp2, null);
+
+		Rect rect = new Rect(p1.x, p1.y, p2.x, p2.y);
+		
+		animationDrawable.setBounds(rect);
+
+//		if (bitmap != null)
+//			canvas.drawBitmap(bitmap, null, rect, null);
+	}
+	
+	public Rect getRect() {
+		
+	}
+
+	private class ImageURLs implements DownloadTask.DownloadListener {
+
+		public ImageURLs(String url) {
+			new DownloadTask(this).execute(url);
+		}
+
+		public void onStreamOpen(InputStream inputStream) {
+			Scanner scanner = new Scanner(inputStream).useDelimiter("\\n");
+			String patternName = ".*(" + imageName + ").*";
+			Pattern pattern = Pattern.compile(patternName);
+
+			while (scanner.hasNext()) {
+				String next = scanner.next();
+				Matcher matcher = pattern.matcher(next);
+				if (matcher.matches()) {
+					String name = matcher.group(1);
+					imageURLs.add(name);
+				}
+			}
+		}
+
+		public void onPostExecute() {
+			NoaaRadar.this.getImages();
+		}
+	}
+
+	private class Frame extends Drawable implements Comparable<Frame>,
+			DownloadTask.DownloadListener {
+		public Bitmap bitmap;
+		public Date date;
+		public String name;
+		public boolean valid = false;
+
+		public Frame(String name_) {
+			name = name_;
+			date = dateFromName(name);
+			new DownloadTask(this).execute(url + name);
+		}
+
+		public void onStreamOpen(InputStream inputStream) {
+			Log.d(TAG, "downloaded: " + name);
+
+			bitmap = BitmapFactory.decodeStream(inputStream);
+			valid = true;
+		}
+
+		public void onPostExecute() {
+			NoaaRadar.this.setChanged();
+			NoaaRadar.this.notifyObservers();
+		}
+
+		public int compareTo(Frame another) {
+			return date.compareTo(another.date);
+		}
+
+		Date dateFromName(String name) {
+			Pattern pattern = Pattern
+					.compile(".*_(\\d\\d\\d\\d)(\\d\\d)(\\d\\d)_(\\d\\d)(\\d\\d)_.*\\.gif");
+			Matcher matcher = pattern.matcher(name);
+			matcher.find();
+			int year = Integer.parseInt(matcher.group(1));
+			int month = Integer.parseInt(matcher.group(2));
+			int day = Integer.parseInt(matcher.group(3));
+			int hour = Integer.parseInt(matcher.group(4));
+			int minute = Integer.parseInt(matcher.group(5));
+
+			Calendar calendar = Calendar.getInstance(TimeZone
+					.getTimeZone("GMT"));
+			calendar.clear();
+			calendar.set(year, month, day, hour, minute);
+			return calendar.getTime();
+		}
+
+		@Override
+		public void draw(Canvas canvas) {
+			if (bitmap == null)
+				return;
+			Rect r = animationDrawable.getBounds();
+			canvas.drawBitmap(bitmap, null, r, null);
+		}
+
+		@Override
+		public int getOpacity() {
+			return PixelFormat.OPAQUE;
+		}
+
+		@Override
+		public void setAlpha(int alpha) {
+		}
+
+		@Override
+		public void setColorFilter(ColorFilter cf) {
+		}
+
+		@Override
+		public int getIntrinsicWidth() {
+			if (bitmap == null)
+				return 0;
+			return bitmap.getWidth();
+		}
+
+		@Override
+		public int getIntrinsicHeight() {
+			if (bitmap == null)
+				return 0;
+			return bitmap.getHeight();
+		}
+
+		@Override
+		public int getMinimumWidth() {
+			if (bitmap == null)
+				return 0;
+			return bitmap.getWidth();
+		}
+
+		@Override
+		public int getMinimumHeight() {
+			if (bitmap == null)
+				return 0;
+			return bitmap.getHeight();
+		}
+	}
+
+	public class GFWFile implements DownloadTask.DownloadListener {
+		float pixelWidth;
+		float pixelHeight;
+		float x;
+		float y;
+		public boolean valid = false;
+
+		public GFWFile(String url) {
+			new DownloadTask(this).execute(url);
+		}
+
+		public void onStreamOpen(InputStream inputStream) {
+			try {
+				DataInputStream dataInputStream = new DataInputStream(
+						inputStream);
+				/*
+				 * Line 1: x-dimension of a pixel in map units Line 2: rotation
+				 * parameter Line 3: rotation parameter Line 4: NEGATIVE of
+				 * y-dimension of a pixel in map units Line 5: x-coordinate of
+				 * center of upper left pixel Line 6: y-coordinate of center of
+				 * upper left pixel
+				 */
+				pixelWidth = Float.parseFloat(dataInputStream.readLine());
+				float r1 = Float.parseFloat(dataInputStream.readLine());
+				float r2 = Float.parseFloat(dataInputStream.readLine());
+				pixelHeight = -Float.parseFloat(dataInputStream.readLine());
+				x = Float.parseFloat(dataInputStream.readLine());
+				y = Float.parseFloat(dataInputStream.readLine());
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			valid = true;
+		}
+
+		public void onPostExecute() {
+		}
+	}
+}

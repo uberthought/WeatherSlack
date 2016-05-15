@@ -1,0 +1,158 @@
+package org.uberthought;
+
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.HttpStatus;
+import org.apache.http.client.methods.HttpGet;
+import org.w3c.dom.Document;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
+
+import android.content.Context;
+import android.content.res.Resources;
+import android.graphics.Matrix;
+import android.net.http.AndroidHttpClient;
+import android.util.Log;
+
+public class ConusRadar {
+	private String TAG = this.getClass().getName();
+
+	Document document;
+	Context context;
+	String url = "http://radar.weather.gov/ridge/Conus/RadarImg/latest_radaronly.gfw";
+	
+	// http://radar.weather.gov/ridge/Conus/RadarImg/
+	// latest_radaronly.gfw
+	// latest_radaronly.gif
+	// http://radar.weather.gov/ridge/Conus/RadarImg/Conus_20120612_1808_N0Ronly.gif
+
+	public ConusRadar(Context context_) {
+		context = context_;
+
+		InputStream inputStream;
+
+		Resources resources = context.getResources();
+		inputStream = resources.openRawResource(R.raw.latest_radaronly_gfw);
+		parseGFW(inputStream);
+	}
+
+	void parseGFW(InputStream inputStream) {
+		DataInputStream dataInputStream = new DataInputStream(inputStream);
+		Matrix matrix = new Matrix();
+		
+		try {
+			//Line 1: x-dimension of a pixel in map units
+			//Line 2: rotation parameter
+			//Line 3: rotation parameter
+			//Line 4: NEGATIVE of y-dimension of a pixel in map units
+			//Line 5: x-coordinate of center of upper left pixel
+			//Line 6: y-coordinate of center of upper left pixel
+			float pixelWidth  = dataInputStream.readFloat();
+			float r1          = dataInputStream.readFloat();
+			float r2          = dataInputStream.readFloat();
+			float pixelHeight = -dataInputStream.readFloat();
+			float x           = dataInputStream.readFloat();
+			float y           = dataInputStream.readFloat();
+			matrix.setScale(pixelWidth, pixelHeight);
+			matrix.setTranslate(x, y);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+	
+	
+	private InputStream getFile(String url) {
+		InputStream inputStream = null;
+		
+		try {
+			AndroidHttpClient httpClient = AndroidHttpClient.newInstance("Android");
+			HttpGet getRequest = new HttpGet(url);
+			HttpResponse response;
+			response = httpClient.execute(getRequest);
+		    int statusCode = response.getStatusLine().getStatusCode();
+	        if (statusCode == HttpStatus.SC_OK) {
+	        	HttpEntity entity = response.getEntity();
+		        inputStream = entity.getContent();
+	        }
+	        else
+	            Log.w(TAG, "Error " + statusCode + " while retrieving " + url); 
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		
+		return inputStream;
+	}
+	
+	private void parseKML(InputStream inputStream) {
+		try {
+			//InputStream inputStream = resources.openRawResource(R.raw.doc);
+			
+			DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setValidating(false);
+
+            // Create the builder and parse the file
+            document = factory.newDocumentBuilder().parse(inputStream);
+            String name = textAt(document.getDocumentElement(), "Document.name");
+            walkTree(document);
+		} catch (SAXException e) {
+			e.printStackTrace();
+		} catch (ParserConfigurationException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+	
+	private String textAt(Node node, String name) {
+		if (name.length() == 0)
+			return node.getTextContent();
+		
+		String first;
+		String rest;
+
+		int position = name.indexOf('.');
+		if (position == -1) {
+			first = name;
+			rest = "";
+		}
+		else {
+			first = name.substring(0, position);
+			rest = name.substring(position + 1);
+		}
+		
+		NodeList list = node.getChildNodes();
+		for (int i = 0; i < list.getLength(); i++) {
+			Node sub = list.item(i);
+			if (sub.getNodeName().compareTo(first) == 0) {
+				node = sub;
+				break;
+			}
+		}
+		
+		return textAt(node, rest);
+	}
+	
+	private void walkTree(Node node) {
+		String name = node.getNodeName();
+		String value = node.getTextContent();
+		short type = node.getNodeType();
+		
+		Log.d(TAG, "walkTree " + type + " " + name + " " + value);
+
+		NodeList children = node.getChildNodes();
+		for (int i = 0; i < children.getLength(); i++) {
+			Node child = children.item(i);
+			if (child.getNodeType() == Node.ELEMENT_NODE)
+				walkTree(child);
+		}
+	}
+}
